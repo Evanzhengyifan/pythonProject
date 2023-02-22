@@ -195,15 +195,17 @@ def get_months_range_list(start_date, end_date, freq, forward):
 
 def run():
     date_list = [['20201231', '20230217']]
-    all_ = [[i, k] for i in date_list for k in [20, 30]]
-    return Parallel(n_jobs=-1)(delayed(DT.adjust)(5, [0.2, -0.2, a[1]], a[0][0], a[0][1], 2, 5) for a in tqdm(all_))
+    all_ = [[i, k, 5*j, 5*a] for i in date_list for k in [0, 10] for j in range(1, 7) for a in range(1, 7)]
+    return Parallel(n_jobs=-1)(delayed(DT.adjust)(5, [0.2, -0.2, a[1]],
+                                                  a[0][0], a[0][1], a[2], a[3], a[1], 2, 5) for a in tqdm(all_))
 
 
 if __name__ == "__main__":
     start_time = time.time()
-    print(pd.concat(
-        run(), ignore_index=True).
-          sort_values('annualized_returns', ascending=False)
-          [['k1', 'k2', 'tp', 'n_std', 'n_bias', 'annualized_returns', 'sharpe', 'max_drawdown']])
+    df = pd.concat(run(), ignore_index=True)
+    df = df.sort_values('annualized_returns', ascending=False)
+    df = df[['trade_freq', 'symbol_freq', 'n_largest', 'annualized_returns', 'sharpe', 'max_drawdown']]
+    df.to_csv('params.csv', index=False)
+    print(df)
     print(f"总共花了{(time.time() - start_time)/60}分钟")
 

@@ -16,11 +16,13 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: int):
+def adjust(n: int, k: list or dict, start: str, end: str,
+           trade_freq: int, symbol_freq: int, n_largest: int, n_std: int, n_bias: int):
     # 回测报告存放路径
     path = os.path.join(os.getcwd(), f'Overnight_{start}_{end}_{k}') if isinstance(k, list) else os.path.join(
         os.getcwd(), f'Overnight_{start}_{end}')
-    path = os.path.join(path, f"每分钟调仓每天更新品种取前{k[-1]}（BIAS_{n_bias}_{n_std}_std)")
+    path = os.path.join(path, '测试不同分钟调仓不同频率更新品种')
+    path = os.path.join(path, f"每{trade_freq}分钟调仓每{symbol_freq}天更新品种取前{n_largest}（BIAS_{n_bias}_{n_std}_std)")
     if not os.path.exists(path):
         os.makedirs(path)
     config = {
@@ -60,12 +62,14 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
         context.k = k
         context.n_std = n_std
         context.n_bias = n_bias
-
+        context.trade_count = 0
+        context.trade_freq = trade_freq
+        context.symbol_count = 0
+        context.symbol_freq = symbol_freq
+        context.n_largest = n_largest
         # 隔夜策略暂时用不到这个参数
         context.check_time = "14:00:00"
         # 3.尝试不同分钟使用计数器，以及不同频率更换品种
-        context.count = 0
-        context.trade = 0
         context.signal_of_index = True
         # 4.其他初始化
         # 存放回测日期已经上市的品种
@@ -102,8 +106,8 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
                                       '21' in rq.get_trading_hours(context.AllItem_contract[item], context.now)]
                 # logger.info("【夜盘品种{0}】".format(context.night_item))
         # 30分钟代表每半小时进行一次交易
-        if context.signal_of_index and context.count % 1 == 0:
-            context.count = 0
+        if context.signal_of_index and context.trade_count % context.trade_freq == 0:
+            context.trade_count = 0
             # 在夜盘和日盘的交易时间段都更新仓位信息至context.AllItem_hold和context.hold_item
             if is_night(context) | is_day(context):
                 cal_positions(context)
@@ -128,7 +132,7 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
         if context.now.time() == datetime.datetime.strptime(context.check_time, "%H:%M:%S").time():
             for item in context.pass_items:
                 adjust(context, item)
-        context.count += 1
+        context.trade_count += 1
 
     def after_trading(context):
         # logger.info(f"after_trading: {context.now}")
@@ -136,10 +140,10 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
         context.Pre_day = rq.get_previous_trading_date(context.now, 1)
         context.next_date = rq.get_next_trading_date(context.now, n=1)
         # 每天更新一次交易品种
-        if context.trade % 1 == 0:
-            context.trade = 0
-            context.items = get_items(context)  # ['RB', 'JM', 'I', 'CU', 'AL', 'NI', 'TA', 'PP']
-        context.trade += 1
+        if context.symbol_count % context.symbol_freq == 0:
+            context.symbol_count = 0
+            context.items = get_items(context) if context.n_largest != 0 else ['RB', 'JM', 'I', 'CU', 'AL', 'NI', 'TA', 'PP']
+        context.symbol_count += 1
         # 2.判断是否上市
         all_pass_items = [i.upper() for i in context.items]
         no_list = [i for i in all_pass_items if rq.futures.get_dominant(i, context.now) is None]
@@ -219,7 +223,7 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
 
         # 夜盘品种
         context.night_item = []
-        context.count = 0
+        context.trade_count = 0
 
     def cal_index(context):
         pre_day = rq.get_previous_trading_date(context.now, 20)
@@ -341,8 +345,7 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
                         if context.hold_item[item][hold_pos]["shortpos"] != 0:
                             order_to(hold_pos, 0)
                     else:
-                        if context.hold_item[item][hold_pos]["shortpos"] != context.target_pos[item][target_pos][
-                            "shortpos"]:
+                        if context.hold_item[item][hold_pos]["shortpos"] != context.target_pos[item][target_pos]["shortpos"]:
                             order_to(context.AllItem_contract[item], -context.target_pos[item][target_pos]["shortpos"])
                             logger.info(f"{context.AllItem_contract[item]}卖开")
                 else:
@@ -437,6 +440,7 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
     if isinstance(k, list):
         try:
             return pd.DataFrame({'k1': [k[0]], 'k2': [k[1]], 'tp': [k[-1]], 'n_std': [n_std], 'n_bias': [n_bias],
+                                 'trade_freq': [trade_freq], 'symbol_freq': [symbol_freq], 'n_largest': [n_largest],
                                  'annualized_returns': [rt['sys_analyser']["summary"]['annualized_returns']],
                                  'sharpe': [rt['sys_analyser']["summary"]['sharpe']],
                                  'max_drawdown': [rt['sys_analyser']["summary"]['max_drawdown']],
@@ -447,5 +451,6 @@ def adjust(n: int, k: list or dict, start: str, end: str, n_std: int, n_bias: in
 
 if __name__ == '__main__':
     start_time = time.time()
-    adjust(5, [0.2, -0.2, 10], '20201231', '20230217', 2, 5)
+    adjust(5, [0.2, -0.2, 10], '20201231', '20230217', trade_freq=1, symbol_freq=1, n_largest=10,
+           n_std=2, n_bias=5)
     print(f"总共花了{(time.time() - start_time) / 60}分钟")
