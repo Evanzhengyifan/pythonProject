@@ -17,7 +17,9 @@ def run(start: str, end: str, trade_freq: int, symbol_freq: int,
         n_std: int, n_bias: int):
     # 回测报告存放路径
     path = os.path.join(os.getcwd(), f'Overnight_{start}_{end}')
-    # path = os.path.join(path, f'加入止盈止损每{str(trade_freq)}分钟调仓（每{symbol_freq}天更新品种）')
+    path = os.path.join(path, f'加入止盈止损每{str(trade_freq)}分钟调仓（每{symbol_freq}天更新品种，取流动性前{n_largest}个）')
+    path = os.path.join(path, f'BIAS_{n_bias}_{n_std}倍标准差')
+    path = os.path.join(path, f'止盈{take_profit_pre}止损{stop_loss_pre}')
     if not os.path.exists(path):
         os.makedirs(path)
     config = {
@@ -281,7 +283,7 @@ def run(start: str, end: str, trade_freq: int, symbol_freq: int,
         pre_day = rq.get_previous_trading_date(context.now, 20)
         df = rq.get_price('H11061.XSHG', start_date=pre_day, end_date=context.now, fields='close')
         df = df.reset_index(level=0, drop=True)
-        for i in [5, 10, 20]:
+        for i in range(5, 31, 5):
             df[f'MA_{i}'] = df['close'].rolling(i).mean()
             df[f'BIAS_{i}'] = (df['close'] - df[f'MA_{i}']) / df[f'MA_{i}'] * 100
             df[f'BIAS_{i}_top'] = df[f'BIAS_{i}'].mean() + context.n_std * df[f'BIAS_{i}'].std()
@@ -604,8 +606,9 @@ def run(start: str, end: str, trade_freq: int, symbol_freq: int,
         return book_id, sub_book_id
 
     rt = run_func(config=config, init=init, handle_bar=handle_bar, after_trading=after_trading)
-    return pd.DataFrame({'trade_freq': [trade_freq], 'symbol_freq': [symbol_freq], 'take_profit_pre': [take_profit_pre],
-                         'stop_loss_pre': [stop_loss_pre], 'n_largest': [n_largest],
+    return pd.DataFrame({'trade_freq': [trade_freq], 'symbol_freq': [symbol_freq],
+                         'take_profit_pre': [take_profit_pre], 'stop_loss_pre': [stop_loss_pre],
+                         'n_largest': [n_largest], 'n_std': [n_std], 'n_bias': [n_bias],
                          'annualized_returns': [rt['sys_analyser']["summary"]['annualized_returns']],
                          'sharpe': [rt['sys_analyser']["summary"]['sharpe']],
                          'max_drawdown': [rt['sys_analyser']["summary"]['max_drawdown']],
@@ -614,7 +617,7 @@ def run(start: str, end: str, trade_freq: int, symbol_freq: int,
 
 if __name__ == '__main__':
     start_time = time.time()
-    run(start='20210101', end='20230217', trade_freq=25, symbol_freq=1,
+    run(start='20181231', end='20230217', trade_freq=25, symbol_freq=1,
         take_profit_pre=0.05, stop_loss_pre=0.01, n_largest=10,
         n_std=2, n_bias=5)
     print(f"总共花了{(time.time() - start_time) / 60: .2f}分钟")
